@@ -59,3 +59,5 @@
 
 //Microops for printing out debug messages through M5
 ##include "debug.isa"
+
+##include "rowbit.isa"

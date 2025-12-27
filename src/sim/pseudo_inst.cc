@@ -281,34 +281,15 @@ addsymbol(ThreadContext *tc, GuestAddr addr, GuestAddr symbolAddr)
 }
 
 uint64_t
-initParam(ThreadContext *tc, uint64_t key_str1, uint64_t key_str2)
+initParam(ThreadContext *tc)
 {
-    DPRINTF(PseudoInst, "pseudo_inst::initParam() key:%s%s\n",
-        (char *)&key_str1, (char *)&key_str2);
+    DPRINTF(PseudoInst, "PseudoInst::initParam()\n");
+    if (!FullSystem) {
+        return 0;
+    }
 
-    // The key parameter string is passed in via two 64-bit registers. We copy
-    // out the characters from the 64-bit integer variables here, and
-    // concatenate them in the key character buffer
-    const int len = 2 * sizeof(uint64_t) + 1;
-    char key[len];
-    std::memset(key, '\0', len);
-
-    std::array<uint64_t, 2> key_regs = {{ key_str1, key_str2 }};
-    key_regs = letoh(key_regs);
-    std::memcpy(key, key_regs.data(), sizeof(key_regs));
-
-    // Check key parameter to figure out what to return.
-    const std::string key_str(key);
-    if (key == DEFAULT)
-        return tc->getCpuPtr()->system->init_param;
-    else if (key == DIST_RANK)
-        return DistIface::rankParam();
-    else if (key == DIST_SIZE)
-        return DistIface::sizeParam();
-    else
-        panic("Unknown key for initparam pseudo instruction:\"%s\"", key_str);
+    return tc->getCpuPtr()->system->init_param;
 }
-
 
 void
 resetstats(ThreadContext *tc, Tick delay, Tick period)

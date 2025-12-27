@@ -225,6 +225,16 @@ def template MicroStoreCompleteAcc {{
     }
 }};
 
+//This delcares the initiateAcc function in memory operations
+def template InitiateAccDeclare {{
+    Fault initiateAcc(ExecContext *, trace::InstRecord *) const;
+}};
+
+//This declares the completeAcc function in memory operations
+def template CompleteAccDeclare {{
+    Fault completeAcc(PacketPtr, ExecContext *, trace::InstRecord *) const;
+}};
+
 def template MicroLdStOpDeclare {{
     class %(class_name)s : public %(base_class)s
     {

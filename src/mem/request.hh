@@ -187,6 +187,9 @@ class Request : public Extensible<Request>
         /** The request is a page table walk */
         PT_WALK                     = 0x20000000,
 
+        /** The request is a bulk bitwise operation */
+        ROWOP                       = 0x40000000,
+
         /** The request invalidates a memory location */
         INVALIDATE                  = 0x0000000100000000,
         /** The request cleans a memory location */
@@ -344,6 +347,24 @@ class Request : public Extensible<Request>
 
     using LocalAccessor =
         std::function<Cycles(ThreadContext *tc, Packet *pkt)>;
+
+    enum RowOp
+    {
+        ROWAND,
+        ROWOR,
+        ROWNOT,
+        ROWXOR,
+        ROWAP,
+        ROWAAP
+    };
+
+    struct RowOpPayload
+    {
+        Request::RowOp op;
+        Addr dest;
+        Addr src1;
+        Addr src2;
+    };
 
   private:
     typedef uint16_t PrivateFlagsType;
@@ -630,6 +651,31 @@ class Request : public Extensible<Request>
         req2->_byteEnable = std::vector<bool>(
             _byteEnable.begin() + req1->_size,
             _byteEnable.end());
+    }
+
+    void splitRowOp(Request::RowOpPayload* addrs, RequestPtr &req_dest,
+            RequestPtr &req_src1, RequestPtr &req_src2)
+    {
+        assert(privateFlags.isSet(VALID_VADDR));
+        assert(privateFlags.noneSet(VALID_PADDR));
+        req_dest = std::make_shared<Request>(*this);
+        req_dest->_vaddr = addrs->dest;
+
+        if (addrs->op == ROWAP) {
+            // AP operations have no second operand
+            req_src1 = NULL;
+        } else {
+            req_src1 = std::make_shared<Request>(*this);
+            req_src1->_vaddr = addrs->src1;
+        }
+
+        if (addrs->op == ROWNOT || addrs->op == ROWAP || addrs->op == ROWAAP) {
+            // NOT, AAP and AP operations have no third operand
+            req_src2 = NULL;
+        } else {
+            req_src2 = std::make_shared<Request>(*this);
+            req_src2->_vaddr = addrs->src2;
+        }
     }
 
     /**
