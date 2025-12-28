@@ -622,6 +622,7 @@ class Packet : public Printable, public Extensible<Packet>
     bool isError() const             { return cmd.isError(); }
     bool isPrint() const             { return cmd.isPrint(); }
     bool isFlush() const             { return cmd.isFlush(); }
+    bool isRowOp() const             { return req->isRowOp(); }
 
     bool isWholeLineWrite(unsigned blk_size)
     {

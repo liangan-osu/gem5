@@ -391,6 +391,51 @@ AbstractMemory::access(PacketPtr pkt)
       return;
     }
 
+    if (pkt->isRowOp()) {
+        const Request::RowOpPayload* addrs =
+            pkt->getConstPtr<Request::RowOpPayload>();
+        uint64_t *dest = (uint64_t*)(pmemAddr + addrs->dest - range.start());
+        uint64_t *src1 = (uint64_t*)(pmemAddr + addrs->src1 - range.start());
+        uint64_t *src2 = (uint64_t*)(pmemAddr + addrs->src2 - range.start());
+        DPRINTF(MemoryAccess, "Performing rowop %d on %p (%x) and %p (%x)\n",
+            addrs->op, src1, *src1, src2, src2 == NULL? 0 : *src2);
+        switch (addrs->op) {
+            case Request::ROWAND:
+                for (int i = 0; i < ROW_SIZE; i += sizeof(uint64_t)) {
+                    *dest++ = *src1++ & *src2++;
+                }
+                break;
+            case Request::ROWOR:
+                for (int i = 0; i < ROW_SIZE; i += sizeof(uint64_t)) {
+                    *dest++ = *src1++ | *src2++;
+                }
+                break;
+            case Request::ROWNOT:
+                for (int i = 0; i < ROW_SIZE; i += sizeof(uint64_t)) {
+                    *dest++ = ~*src1++;
+                }
+                break;
+            case Request::ROWXOR:
+                for (int i = 0; i < ROW_SIZE; i += sizeof(uint64_t)) {
+                    *dest++ = *src1++ ^ *src2++;
+                }
+                break;
+            case Request::ROWAP:
+                //TODO implement
+                break;
+            case Request::ROWAAP:
+                //TODO implement
+                break;
+            default:
+                assert(false);
+                break;
+        }
+        if (pkt->needsResponse()) {
+            pkt->makeResponse();
+        }
+        return;
+    }
+
     assert(pkt->getAddrRange().isSubset(range));
 
     uint8_t *host_addr = toHostAddr(pkt->getAddr());

@@ -68,9 +68,13 @@ class WholeTranslationState
   public:
     bool delay;
     bool isSplit;
+    bool isRowOp;
     RequestPtr mainReq;
     RequestPtr sreqLow;
     RequestPtr sreqHigh;
+    RequestPtr sreqDest;
+    RequestPtr sreqSrc1;
+    RequestPtr sreqSrc2;
     uint8_t *data;
     uint64_t *res;
     BaseMMU::Mode mode;
@@ -81,8 +85,9 @@ class WholeTranslationState
      */
     WholeTranslationState(const RequestPtr &_req, uint8_t *_data,
                           uint64_t *_res, BaseMMU::Mode _mode)
-        : outstanding(1), delay(false), isSplit(false), mainReq(_req),
-          sreqLow(NULL), sreqHigh(NULL), data(_data), res(_res), mode(_mode)
+        : outstanding(1), delay(false), isSplit(false), isRowOp(false),
+          mainReq(_req), sreqLow(NULL), sreqHigh(NULL), data(_data),
+          res(_res), mode(_mode)
     {
         faults[0] = faults[1] = NoFault;
         assert(mode == BaseMMU::Read || mode == BaseMMU::Write);
@@ -96,12 +101,31 @@ class WholeTranslationState
     WholeTranslationState(const RequestPtr &_req, const RequestPtr &_sreqLow,
                           const RequestPtr &_sreqHigh, uint8_t *_data,
                           uint64_t *_res, BaseMMU::Mode _mode)
-        : outstanding(2), delay(false), isSplit(true), mainReq(_req),
-          sreqLow(_sreqLow), sreqHigh(_sreqHigh), data(_data), res(_res),
-          mode(_mode)
+        : outstanding(2), delay(false), isSplit(true), isRowOp(false),
+          mainReq(_req), sreqLow(_sreqLow), sreqHigh(_sreqHigh), data(_data),
+          res(_res), mode(_mode)
     {
         faults[0] = faults[1] = NoFault;
         assert(mode == BaseMMU::Read || mode == BaseMMU::Write);
+    }
+
+    /**
+     * Triple (or double) translation state for row op.
+     */
+    WholeTranslationState(const RequestPtr &_req,
+                          const RequestPtr &_sreqDest,
+                          const RequestPtr &_sreqSrc1,
+                          const RequestPtr &_sreqSrc2,
+                          uint8_t *_data, uint64_t *_res,
+                          BaseMMU::Mode _mode)
+        : outstanding(_sreqSrc1 == NULL? 1 : (_sreqSrc2 == NULL? 2 : 3)),
+          delay(false), isSplit(false), isRowOp(true),
+          mainReq(_req), sreqLow(NULL), sreqHigh(NULL),
+          sreqDest(_sreqDest), sreqSrc1(_sreqSrc1), sreqSrc2(_sreqSrc2),
+          data(_data), res(_res), mode(_mode)
+    {
+        faults[0] = faults[1] = faults[2] = NoFault;
+        assert(mode == BaseMMU::Write);
     }
 
     /**
@@ -125,6 +149,26 @@ class WholeTranslationState
             }
             mainReq->setFlags(sreqLow->getFlags());
             mainReq->setFlags(sreqHigh->getFlags());
+        }
+        if (isRowOp && outstanding == 0) {
+            Request::RowOpPayload* addrs = (Request::RowOpPayload*) data;
+            if (faults[0] == NoFault) {
+                addrs->dest = sreqDest->getPaddr();
+            }
+            mainReq->setFlags(sreqDest->getFlags());
+            if (sreqSrc1 != NULL) {
+                if (faults[1] == NoFault) {
+                    addrs->src1 = sreqSrc1->getPaddr();
+                }
+                mainReq->setFlags(sreqSrc1->getFlags());
+            }
+            if (sreqSrc2 != NULL) {
+                if (faults[2] == NoFault) {
+                    addrs->src2 = sreqSrc2->getPaddr();
+                }
+                mainReq->setFlags(sreqSrc2->getFlags());
+            }
+            mainReq->setPaddr(0);
         }
         return outstanding == 0;
     }
@@ -201,6 +245,11 @@ class WholeTranslationState
         if (isSplit) {
             sreqLow.reset();
             sreqHigh.reset();
+        }
+        if (isRowOp) {
+            sreqDest.reset();
+            sreqSrc1.reset();
+            sreqSrc2.reset();
         }
     }
 };

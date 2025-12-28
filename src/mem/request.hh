@@ -65,6 +65,8 @@
 #include "mem/htm.hh"
 #include "sim/cur_tick.hh"
 
+#define ROW_SIZE 8192
+
 namespace gem5
 {
 
@@ -1085,6 +1087,7 @@ class Request : public Extensible<Request>
     }
     bool isSecure() const { return _flags.isSet(SECURE); }
     bool isPTWalk() const { return _flags.isSet(PT_WALK); }
+    bool isRowOp() const { return _flags.isSet(ROWOP); }
     bool isRelease() const { return _flags.isSet(RELEASE); }
     bool isKernel() const { return _flags.isSet(KERNEL); }
     bool isAtomicReturn() const { return _flags.isSet(ATOMIC_RETURN_OP); }

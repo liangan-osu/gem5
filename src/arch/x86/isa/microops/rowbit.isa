@@ -101,7 +101,7 @@ def format RowOp() {{
     params['rowop_write'] = (
         'xc->writeMem((uint8_t*)&data, size, 0, '
         '%(mem_flags)s, NULL, byte_enable)'
-        )'%params;
+        )%params;
 
     iop = InstObjParams(name, Name, 'X86ISA::X86StaticInst', params)
     header_output = RowOpDeclare.subst(iop)

@@ -456,6 +456,7 @@ TimingSimpleCPU::initiateMemRead(Addr addr, unsigned size,
     SimpleThread* thread = t_info.thread;
 
     Fault fault;
+    uint8_t *newData = new uint8_t[size];
     const Addr pc = thread->pcState().instAddr();
     unsigned block_size = cacheLineSize();
     BaseMMU::Mode mode = BaseMMU::Read;
@@ -479,7 +480,7 @@ TimingSimpleCPU::initiateMemRead(Addr addr, unsigned size,
         req->splitOnVaddr(split_addr, req1, req2);
 
         WholeTranslationState *state =
-            new WholeTranslationState(req, req1, req2, new uint8_t[size],
+            new WholeTranslationState(req, req1, req2, newData,
                                       NULL, mode);
         DataTranslation<TimingSimpleCPU *> *trans1 =
             new DataTranslation<TimingSimpleCPU *>(this, state, 0);
@@ -488,9 +489,41 @@ TimingSimpleCPU::initiateMemRead(Addr addr, unsigned size,
 
         thread->mmu->translateTiming(req1, thread->getTC(), trans1, mode);
         thread->mmu->translateTiming(req2, thread->getTC(), trans2, mode);
-    } else {
+    }
+    else if (flags & Request::ROWOP) {
+        RequestPtr req_dest, req_src1, req_src2;
+        req->splitRowOp((Request::RowOpPayload*)newData,
+            req_dest, req_src1, req_src2);
+
         WholeTranslationState *state =
-            new WholeTranslationState(req, new uint8_t[size], NULL, mode);
+            new WholeTranslationState(req, req_dest, req_src1, req_src2,
+                                      newData, NULL, mode);
+
+        DataTranslation<TimingSimpleCPU *> *trans1 =
+            new DataTranslation<TimingSimpleCPU *>(this, state, 0);
+        thread->mmu->translateTiming(req_dest, thread->getTC(), trans1, mode);
+
+        // Only include the third address if it is non-NULL, to account for AP
+        // operations
+        if (req_src1 != NULL) {
+            DataTranslation<TimingSimpleCPU *> *trans2 =
+                new DataTranslation<TimingSimpleCPU *>(this, state, 1);
+            thread->mmu->translateTiming(req_src1, thread->getTC(),
+                trans2, mode);
+        }
+
+        // Only include the third address if it is non-NULL,
+        // to account for NOT, AP, and AAP operations
+        if (req_src2 != NULL) {
+            DataTranslation<TimingSimpleCPU *> *trans3 =
+                new DataTranslation<TimingSimpleCPU *>(this, state, 2);
+            thread->mmu->translateTiming(req_src2, thread->getTC(),
+                trans3, mode);
+        }
+    }
+    else {
+        WholeTranslationState *state =
+            new WholeTranslationState(req, newData, NULL, mode);
         DataTranslation<TimingSimpleCPU *> *translation
             = new DataTranslation<TimingSimpleCPU *>(this, state);
         thread->mmu->translateTiming(req, thread->getTC(), translation, mode);
