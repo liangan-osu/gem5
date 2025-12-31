@@ -523,6 +523,8 @@ class DRAMInterface : public MemInterface
     const Tick tXAW;
     const Tick tXP;
     const Tick tXS;
+    const Tick tWD;
+    const Tick tWDO;
     const Tick clkResyncDelay;
     const bool dataClockSync;
     const bool burstInterleave;
@@ -579,6 +581,24 @@ class DRAMInterface : public MemInterface
     void prechargeBank(Rank& rank_ref, Bank& bank_ref,
                        Tick pre_tick, bool auto_or_preall = false,
                        bool trace = true);
+
+    void apBank(Rank& rank_ref, Bank& bank_ref, Tick act_tick, uint32_t row);
+
+    /**
+     * Perform an activate-activate-precharge cycle on a given bank. Updates
+     * bank.actAllowedAt for the next operation by setting bank.preAllowedAt
+     * and calling prechargeBank().
+     *
+     * @param rank_ref The rank to AAP
+     * @param bank_ref The bank to AAP
+     * @param act_tick Time when the first activate takes place
+     * @param row1 Index of first row to activate
+     * @param row2 Index of second row to activate
+     * @param act_overlapped Whether to use the shorter timing associated with
+     *                       overlapped activations
+     */
+    void aapBank(Rank& rank_ref, Bank& bank_ref, Tick act_tick, uint32_t row1,
+        uint32_t row2, bool act_overlapped);
 
     struct DRAMStats : public statistics::Group
     {

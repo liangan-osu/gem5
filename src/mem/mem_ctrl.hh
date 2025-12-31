@@ -124,6 +124,12 @@ class MemPacket
     const uint8_t bank;
     const uint32_t row;
 
+    /** Used for row ops */
+    uint32_t src1_row;
+    uint32_t src2_row;
+    bool is_row_op;
+    Request::RowOp row_op;
+
     /**
      * Bank id is calculated considering banks in all the ranks
      * eg: 2 ranks each with 8 banks, then bankId = 0 --> rank0, bank0 and
@@ -209,7 +215,8 @@ class MemPacket
         : entryTime(curTick()), readyTime(curTick()), pkt(_pkt),
           _requestorId(pkt->requestorId()),
           read(is_read), dram(is_dram), pseudoChannel(_channel), rank(_rank),
-          bank(_bank), row(_row), bankId(bank_id), addr(_addr), size(_size),
+          bank(_bank), row(_row), src1_row(0), src2_row(0), is_row_op(false),
+          bankId(bank_id), addr(_addr), size(_size),
           burstHelper(NULL), _qosValue(_pkt->qosValue())
     { }
 
@@ -292,6 +299,8 @@ class MemCtrl : public qos::MemCtrl
      */
     bool retryRdReq;
     bool retryWrReq;
+
+    int pendingRowOps;
 
     /**
      * Bunch of things requires to setup "events" in gem5

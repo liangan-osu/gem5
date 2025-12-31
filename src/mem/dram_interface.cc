@@ -343,6 +343,84 @@ DRAMInterface::prechargeBank(Rank& rank_ref, Bank& bank, Tick pre_tick,
     }
 }
 
+void
+DRAMInterface::apBank(Rank& rank_ref, Bank& bank_ref,
+    Tick act_tick, uint32_t row)
+{
+    activateBank(rank_ref, bank_ref, act_tick, row);
+    prechargeBank(rank_ref, bank_ref, bank_ref.preAllowedAt);
+}
+
+void
+DRAMInterface::aapBank(Rank& rank_ref, Bank& bank_ref,
+    Tick act_tick, uint32_t row1,
+    uint32_t row2, bool act_overlapped)
+{
+    DPRINTF(DRAM, "Activate-Activate at tick %d\n", act_tick);
+
+    // update the open row
+    assert(bank_ref.openRow == Bank::NO_ROW);
+    bank_ref.openRow = Bank::DOUBLE_ROW;
+
+    // start counting anew, this covers both the case when we
+    // auto-precharged, and when this access is forced to
+    // precharge
+    bank_ref.bytesAccessed = 0;
+    bank_ref.rowAccesses = 0;
+
+    ++rank_ref.numBanksActive;
+    assert(rank_ref.numBanksActive <= banksPerRank);
+
+    DPRINTF(DRAM, "Activate-Activate bank %d, rank %d "
+                  "at tick %lld, now got %d active\n",
+            bank_ref.bank, rank_ref.rank, act_tick,
+            ranks[rank_ref.rank]->numBanksActive);
+
+    // The next access has to respect tRAS plus a bit for this bank
+    if (act_overlapped) {
+        bank_ref.preAllowedAt = act_tick + tRAS + tWDO;
+    } else {
+        bank_ref.preAllowedAt = act_tick + tRAS + tWD;
+    }
+
+    // enforce tRRD
+    for (int i = 0; i < banksPerRank; i ++) {
+        if (bankGroupArch && (bank_ref.bankgr == rank_ref.banks[i].bankgr)) {
+            rank_ref.banks[i].actAllowedAt = std::max(act_tick + tRRD_L,
+            rank_ref.banks[i].actAllowedAt);
+        }
+        else {
+            rank_ref.banks[i].actAllowedAt = std::max(act_tick + tRRD,
+            rank_ref.banks[i].actAllowedAt);
+        }
+    }
+
+    // enforce tXAW
+    if (!rank_ref.actTicks.empty()) {
+        rank_ref.actTicks.pop_back();
+        rank_ref.actTicks.push_front(act_tick);
+
+        Tick new_limit = rank_ref.actTicks.back() + tXAW;
+        if (rank_ref.actTicks.back() &&
+            act_tick < new_limit) {
+            for (int j = 0; j < banksPerRank; j ++) {
+                rank_ref.banks[j].actAllowedAt =
+                    std::max(new_limit, rank_ref.banks[j].actAllowedAt);
+            }
+        }
+    }
+
+    // at the point when this activate takes place, make sure we
+    // transition to the active power state
+    if (!rank_ref.activateEvent.scheduled())
+        schedule(rank_ref.activateEvent, act_tick);
+    else if (rank_ref.activateEvent.when() > act_tick)
+        // move it sooner in time
+        reschedule(rank_ref.activateEvent, act_tick);
+
+    prechargeBank(rank_ref, bank_ref, bank_ref.preAllowedAt);
+}
+
 std::pair<Tick, Tick>
 DRAMInterface::doBurstAccess(MemPacket* mem_pkt, Tick next_burst_at,
                              const std::vector<MemPacketQueue>& queue)
@@ -369,6 +447,128 @@ DRAMInterface::doBurstAccess(MemPacket* mem_pkt, Tick next_burst_at,
     // for the state we need to track if it is a row hit or not
     bool row_hit = true;
 
+    // respect any constraints on the command (e.g. tRCD or tCCD)
+    const Tick col_allowed_at = mem_pkt->isRead() ?
+                                bank_ref.rdAllowedAt : bank_ref.wrAllowedAt;
+
+        if (mem_pkt->is_row_op) {
+
+        // If there is a page open, precharge it.
+        if (bank_ref.openRow != Bank::NO_ROW) {
+            prechargeBank(rank_ref, bank_ref,
+            std::max(bank_ref.preAllowedAt, curTick()));
+        }
+
+        // Wait for earliest allowed activate
+        Tick cmd_at = std::max(col_allowed_at, bank_ref.actAllowedAt);
+
+        // Do sequence of activate-activate-precharge operations
+        switch (mem_pkt->row_op) {
+            case Request::ROWAND:
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    mem_pkt->src1_row, Bank::B_T0,    true);
+                cmd_at = bank_ref.actAllowedAt;
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    mem_pkt->src2_row, Bank::B_T1,    true);
+                cmd_at = bank_ref.actAllowedAt;
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    Bank::C_0,          Bank::B_T2,    true);
+                cmd_at = bank_ref.actAllowedAt;
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    Bank::B_T0_T1_T2,   mem_pkt->row, true);
+                cmd_at = bank_ref.actAllowedAt;
+                break;
+            case Request::ROWOR:
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    mem_pkt->src1_row, Bank::B_T0,    true);
+                cmd_at = bank_ref.actAllowedAt;
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    mem_pkt->src2_row, Bank::B_T1,    true);
+                cmd_at = bank_ref.actAllowedAt;
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    Bank::C_1,          Bank::B_T2,    true);
+                cmd_at = bank_ref.actAllowedAt;
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    Bank::B_T0_T1_T2,   mem_pkt->row, true);
+                cmd_at = bank_ref.actAllowedAt;
+                break;
+            case Request::ROWNOT:
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    mem_pkt->src1_row, Bank::B_DCC0N, true);
+                cmd_at = bank_ref.actAllowedAt;
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    Bank::B_DCC0,       mem_pkt->row, true);
+                cmd_at = bank_ref.actAllowedAt;
+                break;
+            case Request::ROWXOR:
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    mem_pkt->src1_row, Bank::B_DCC0N_T0, true);
+                cmd_at = bank_ref.actAllowedAt;
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    mem_pkt->src2_row, Bank::B_DCC1N_T1, true);
+                cmd_at = bank_ref.actAllowedAt;
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    Bank::C_0,          Bank::B_T2_T3,    true);
+                cmd_at = bank_ref.actAllowedAt;
+                apBank (rank_ref, bank_ref, cmd_at,
+                    Bank::B_DCC0_T1_T2                        );
+                cmd_at = bank_ref.actAllowedAt;
+                apBank (rank_ref, bank_ref, cmd_at,
+                    Bank::B_DCC1_T0_T3                        );
+                cmd_at = bank_ref.actAllowedAt;
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    Bank::C_1,          Bank::B_T2,       true);
+                cmd_at = bank_ref.actAllowedAt;
+                aapBank(rank_ref, bank_ref, cmd_at,
+                    Bank::B_T0_T1_T2,   mem_pkt->row,    true);
+                cmd_at = bank_ref.actAllowedAt;
+                break;
+            case Request::ROWAP:
+                apBank (rank_ref, bank_ref, cmd_at, Bank::B_T0_T1_T2);
+                cmd_at = bank_ref.actAllowedAt;
+                //TODO replace Bank::B_T0_T1_T2 with correct bank
+                break;
+            case Request::ROWAAP:
+                aapBank(rank_ref, bank_ref, cmd_at, 0, 0, true);
+                cmd_at = bank_ref.actAllowedAt;
+                //TODO replace NULLs with correct banks
+                break;
+            default:
+                assert(false);
+                break;
+        }
+
+        Tick max_sync = clkResyncDelay + tRL;
+        if (dataClockSync && ((cmd_at - rank_ref.lastBurstTick) > max_sync))
+            cmd_at = ctrl->verifyMultiCmd(cmd_at, maxCommandsPerWindow, tCK);
+        else
+            cmd_at = ctrl->verifySingleCmd(cmd_at,
+                maxCommandsPerWindow, false);
+
+        // if we are interleaving bursts, ensure that
+        // 1) we don't double interleave on next burst issue
+        // 2) we are at an interleave boundary; if not, shift to next boundary
+        Tick burst_gap = tBURST_MIN;
+        if (burstInterleave) {
+            if (cmd_at == (rank_ref.lastBurstTick + tBURST_MIN)) {
+                // already interleaving, push next command to end of full burst
+                burst_gap = tBURST;
+            } else if (cmd_at < (rank_ref.lastBurstTick + tBURST)) {
+                // not at an interleave boundary after bandwidth check
+                // Shift command to tBURST boundary to avoid data contention
+                // Command will remain in the same burst window given that
+                // tBURST is less than tBURST_MAX
+                cmd_at = rank_ref.lastBurstTick + tBURST;
+            }
+        }
+
+        // Update times, similar to code below
+        mem_pkt->readyTime = cmd_at + tRL;
+        activeRank = mem_pkt->rank;
+
+        return std::make_pair(cmd_at, cmd_at + burst_gap);
+    }
+
     // Determine the access latency and update the bank state
     if (bank_ref.openRow == mem_pkt->row) {
         // nothing to do
@@ -388,10 +588,6 @@ DRAMInterface::doBurstAccess(MemPacket* mem_pkt, Tick next_burst_at,
         // constraints caused be a new activation (tRRD and tXAW)
         activateBank(rank_ref, bank_ref, act_tick, mem_pkt->row);
     }
-
-    // respect any constraints on the command (e.g. tRCD or tCCD)
-    const Tick col_allowed_at = mem_pkt->isRead() ?
-                                bank_ref.rdAllowedAt : bank_ref.wrAllowedAt;
 
     // we need to wait until the bus is available before we can issue
     // the command; need to ensure minimum bus delay requirement is met
@@ -646,6 +842,7 @@ DRAMInterface::DRAMInterface(const DRAMInterfaceParams &_p)
       tRFC(_p.tRFC), tREFI(_p.tREFI), tRRD(_p.tRRD), tRRD_L(_p.tRRD_L),
       tPPD(_p.tPPD), tAAD(_p.tAAD),
       tXAW(_p.tXAW), tXP(_p.tXP), tXS(_p.tXS),
+          tWD(_p.tWD), tWDO(_p.tWDO),
       clkResyncDelay(_p.tBURST_MAX),
       dataClockSync(_p.data_clock_sync),
       burstInterleave(tBURST != tBURST_MIN),

@@ -179,6 +179,12 @@ class DRAMInterface(MemInterface):
     # time to exit self-refresh mode with locked DLL
     tXSDLL = Param.Latency("0ns", "Self-refresh exit latency DLL")
 
+    # time between two activates in basic AAP
+    tWD = Param.Latency("Word-line delay")
+
+    # time between two activates in overlapped AAP
+    tWDO = Param.Latency("Word-line delay (overlapped activate)")
+
     # number of data beats per clock. with DDR, default is 2, one per edge
     # used in drampower.cc
     beats_per_clock = Param.Unsigned(2, "Data beats per clock")

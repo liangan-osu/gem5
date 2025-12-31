@@ -1422,6 +1422,31 @@ LSQUnit::read(LSQRequest *request, ssize_t load_idx)
             bool lower_load_has_store_part = req_s < st_e;
             bool upper_load_has_store_part = req_e > st_s;
 
+            // If the store is a rowop that this load overlaps with,
+                        // pretend it's a partial overlap and stall load
+            if (store_it->request()->mainReq()->isRowOp()) {
+                Request::RowOpPayload* addrs =
+                                        (Request::RowOpPayload*)
+                                        &store_it->data()[0];
+                DPRINTF(LSQUnit,
+                        "Store queue has rowop 0x%x <-- 0x%x (*) 0x%x\n",
+                                        addrs->dest, addrs->src1, addrs->src2);
+                Addr ld_addr_low = request->mainReq()->getPaddr();
+                Addr ld_addr_high = ld_addr_low +
+                                        request->mainReq()->getSize();
+                Addr st_addr_low = addrs->dest;
+                Addr st_addr_high = st_addr_low + ROW_SIZE;
+                if (st_addr_low < ld_addr_high && ld_addr_low < st_addr_high) {
+                    DPRINTF(LSQUnit,
+                        "Load of 0x%x overlaps with pending rowop to 0x%x\n",
+                                                ld_addr_low, st_addr_low);
+                    store_has_lower_limit = true;
+                    store_has_upper_limit = false;
+                    lower_load_has_store_part = true;
+                    upper_load_has_store_part = false;
+                }
+            }
+
             auto coverage = AddrRangeCoverage::NoAddrRangeCoverage;
 
             // If the store entry is not atomic (atomic does not have valid

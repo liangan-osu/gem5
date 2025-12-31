@@ -157,6 +157,15 @@ Cache::satisfyRequest(PacketPtr pkt, CacheBlk *blk,
 //
 /////////////////////////////////////////////////////
 
+void
+Cache::writebackAddr(Addr addr, bool secure, PacketList &writebacks)
+{
+    CacheBlk *old_blk(tags->findBlock({addr, secure}));
+    if (old_blk && old_blk->isValid()) {
+        BaseCache::evictBlock(old_blk, writebacks);
+    }
+}
+
 bool
 Cache::access(PacketPtr pkt, CacheBlk *&blk, Cycles &lat,
               PacketList &writebacks)
@@ -172,9 +181,17 @@ Cache::access(PacketPtr pkt, CacheBlk *&blk, Cycles &lat,
         DPRINTF(Cache, "%s for %s\n", __func__, pkt->print());
 
         // flush and invalidate any existing block
-        CacheBlk *old_blk(tags->findBlock({pkt->getAddr(), pkt->isSecure()}));
-        if (old_blk && old_blk->isValid()) {
-            BaseCache::evictBlock(old_blk, writebacks);
+        if (pkt->req->isRowOp()) {
+            Request::RowOpPayload* addrs =
+                pkt->getPtr<Request::RowOpPayload>();
+            for (Addr i = 0; i < ROW_SIZE; i += blkSize) {
+                writebackAddr(addrs->dest + i, pkt->isSecure(), writebacks);
+                writebackAddr(addrs->src1 + i, pkt->isSecure(), writebacks);
+                writebackAddr(addrs->src2 + i, pkt->isSecure(), writebacks);
+            }
+        }
+        else {
+            writebackAddr(pkt->getAddr(), pkt->isSecure(), writebacks);
         }
 
         blk = nullptr;

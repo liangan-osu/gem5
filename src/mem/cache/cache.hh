@@ -85,6 +85,11 @@ class Cache : public BaseCache
      */
     void promoteWholeLineWrites(PacketPtr pkt);
 
+    /**
+     * Searches for an address in the cache and writes it back if present.
+     */
+    void writebackAddr(Addr addr, bool secure, PacketList &writebacks);
+
     bool access(PacketPtr pkt, CacheBlk *&blk, Cycles &lat,
                 PacketList &writebacks) override;
 

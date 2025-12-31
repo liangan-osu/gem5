@@ -88,6 +88,26 @@ class MemInterface : public AbstractMemory
 
       public:
         static const uint32_t NO_ROW = -1;
+        static const uint32_t DOUBLE_ROW = -2;
+
+        static const uint32_t B_T0         =  -3;
+        static const uint32_t B_T1         =  -4;
+        static const uint32_t B_T2         =  -5;
+        static const uint32_t B_T3         =  -6;
+        static const uint32_t B_DCC0       =  -7;
+        static const uint32_t B_DCC0N      =  -8;
+        static const uint32_t B_DCC1       =  -9;
+        static const uint32_t B_DCC1N      = -10;
+        static const uint32_t B_DCC0N_T0   = -11;
+        static const uint32_t B_DCC1N_T1   = -12;
+        static const uint32_t B_T2_T3      = -13;
+        static const uint32_t B_T0_T3      = -14;
+        static const uint32_t B_T0_T1_T2   = -15;
+        static const uint32_t B_T1_T2_T3   = -16;
+        static const uint32_t B_DCC0_T1_T2 = -17;
+        static const uint32_t B_DCC1_T0_T3 = -18;
+        static const uint32_t C_0          = -19;
+        static const uint32_t C_1          = -20;
 
         uint32_t openRow;
         uint8_t bank;
