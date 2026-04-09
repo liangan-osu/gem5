@@ -2,8 +2,11 @@
 def template RowOpDeclare {{
     class %(class_name)s : public %(base_class)s
     {
+    private:
+        %(reg_idx_arr_decl)s;
+
     public:
-        %(class_name)s(ExtMachInst _machInst);
+        %(class_name)s(ExtMachInst mach_inst);
 
         %(BasicExecDeclare)s
 
@@ -15,9 +18,10 @@ def template RowOpDeclare {{
 }};
 
 def template RowOpConstructor {{
-    %(class_name)s::%(class_name)s(ExtMachInst _machInst) :
-        %(base_class)s("%(mnemonic)s", _machInst, %(op_class)s)
+    %(class_name)s::%(class_name)s(ExtMachInst mach_inst) :
+        %(base_class)s("%(mnemonic)s", mach_inst, %(op_class)s)
     {
+        %(set_reg_idx_arr)s;
         %(constructor)s
     }
 }};

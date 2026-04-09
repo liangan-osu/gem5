@@ -636,6 +636,9 @@ class DDR4_2400_8x8(DDR4_2400_16x4):
 
     tXAW = "21ns"
 
+    tWD = "32ns"  # FIXME not actually used
+    tWDO = "4ns"
+
     # Current values from datasheet
     IDD0 = "48mA"
     IDD3N = "43mA"
