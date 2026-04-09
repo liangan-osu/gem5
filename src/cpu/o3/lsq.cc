@@ -777,6 +777,7 @@ LSQ::pushRequest(const DynInstPtr& inst, bool isLoad, uint8_t *data,
 
     const bool htm_cmd = isLoad && (flags & Request::HTM_CMD);
     const bool tlbi_cmd = isLoad && (flags & Request::TLBI_CMD);
+    const bool rowop = flags & Request::ROWOP;
 
     if (inst->translationStarted()) {
         request = inst->savedRequest;
@@ -786,6 +787,9 @@ LSQ::pushRequest(const DynInstPtr& inst, bool isLoad, uint8_t *data,
             assert(addr == 0x0lu);
             assert(size == 8);
             request = new UnsquashableDirectRequest(&thread[tid], inst, flags);
+        } else if (rowop) {
+            request = new RowopRequest(&thread[tid], inst, isLoad, addr,
+                    size, flags, data, res);
         } else if (needs_burst) {
             request = new SplitDataRequest(&thread[tid], inst, isLoad, addr,
                     size, flags, data, res);
@@ -921,6 +925,53 @@ LSQ::SplitDataRequest::finish(const Fault &fault, const RequestPtr &req,
 }
 
 void
+LSQ::RowopRequest::finish(const Fault &fault, const RequestPtr &request,
+        gem5::ThreadContext* tc, BaseMMU::Mode mode)
+{
+    int i;
+    for (i = 0; i < _reqs.size() && _reqs[i] != request; i++);
+    assert(i < _reqs.size());
+    _fault[i] = fault;
+
+    numInTranslationFragments--;
+    numTranslatedFragments++;
+
+    if (i < _reqs.size() - 1) {
+        if (fault == NoFault)
+            sendFragmentToTranslation(i + 1);
+    }
+
+    if (fault == NoFault) {
+        Request::RowOpPayload* addrs = (Request::RowOpPayload*)_data;
+        Addr paddr = request->getPaddr();
+        switch (i) {
+            case 0:
+                addrs->dest = paddr;
+                break;
+            case 1:
+                addrs->src1 = paddr;
+                break;
+            case 2:
+                addrs->src2 = paddr;
+                break;
+        }
+    }
+
+    _mainReq->setFlags(request->getFlags());
+    _inst->strictlyOrdered(_mainReq->isStrictlyOrdered());
+    flags.set(Flag::TranslationFinished);
+    _inst->translationCompleted(true);
+    _inst->memReqFlags = _mainReq->getFlags();
+    _inst->fault = fault;
+    if (fault == NoFault) {
+        setState(State::Request);
+    }
+    else {
+        setState(State::Fault);
+    }
+}
+
+void
 LSQ::SingleDataRequest::initiateTranslation()
 {
     assert(_reqs.size() == 0);
@@ -1020,6 +1071,69 @@ LSQ::SplitDataRequest::initiateTranslation()
     } else {
         _inst->setMemAccPredicate(false);
     }
+}
+
+void
+LSQ::RowopRequest::initiateTranslation()
+{
+        _mainReq = std::make_shared<Request>(_addr,
+                _size, _flags, _inst->requestorId(),
+                _inst->pcState().instAddr(), _inst->contextId());
+    _mainReq->setByteEnable(_byteEnable);
+
+    // Paddr is not used in _mainReq. However, we will accumulate the flags
+    // from the sub requests into _mainReq by calling setFlags() in finish().
+    // setFlags() assumes that paddr is set so flip the paddr valid bit here to
+    // avoid a potential assert in setFlags() when we call it from  finish().
+    _mainReq->setPaddr(0);
+
+        // If this is being executed speculatively, we might get wacky
+    // addresses, so round down
+    Request::RowOpPayload* addrs = (Request::RowOpPayload*)_data;
+    Addr dest = addrs->dest / ROW_SIZE * ROW_SIZE;
+    Addr src1 = addrs->src1 / ROW_SIZE * ROW_SIZE;
+    Addr src2 = addrs->src2 / ROW_SIZE * ROW_SIZE;
+
+    DPRINTF(LSQ, "preparing to translate %p, %p, and %p\n", dest, src1, src2);
+
+        auto it_start = _byteEnable.begin() + 8;
+    auto it_end = _byteEnable.begin() + 16;
+    addReq(dest, 8, std::vector<bool>(it_start, it_end));
+
+    if (src1) {
+        it_start = _byteEnable.begin() + 16;
+        it_end = _byteEnable.begin() + 24;
+        addReq(src1, 8, std::vector<bool>(it_start, it_end));
+    }
+
+    if (src2) {
+        it_start = _byteEnable.begin() + 24;
+        it_end = _byteEnable.begin() + 32;
+        addReq(src2, 8, std::vector<bool>(it_start, it_end));
+    }
+
+        if (_reqs.size() > 0) {
+        // Setup the requests and send them to translation.
+        for (auto& r: _reqs) {
+            r->setReqInstSeqNum(_inst->seqNum);
+            r->taskId(_taskId);
+        }
+
+        _inst->translationStarted(true);
+        setState(State::Translation);
+        flags.set(Flag::TranslationStarted);
+        _inst->savedRequest = this;
+        numInTranslationFragments = 0;
+        numTranslatedFragments = 0;
+        _fault.resize(_reqs.size());
+
+            sendFragmentToTranslation(0);
+    } else {
+        _inst->setMemAccPredicate(false);
+    }
+
+    rowoppayload = new uint8_t[sizeof(Request::RowOpPayload)];
+    memcpy(rowoppayload, _data, sizeof(Request::RowOpPayload));
 }
 
 LSQ::LSQRequest::LSQRequest(
@@ -1293,6 +1407,18 @@ LSQ::SplitDataRequest::buildPackets()
 }
 
 void
+LSQ::RowopRequest::buildPackets()
+{
+    /* Retries do not create new packets. */
+    if (_packets.size() == 0) {
+        _packets.push_back(Packet::createWrite(_mainReq));
+        _packets.back()->dataStatic(rowoppayload);
+        _packets.back()->senderState = this;
+    }
+    assert(_packets.size() == 1);
+}
+
+void
 LSQ::SingleDataRequest::sendPacketToCache()
 {
     assert(_numOutstandingPackets == 0);
@@ -1309,6 +1435,14 @@ LSQ::SplitDataRequest::sendPacketToCache()
                 _packets.at(numReceivedPackets + _numOutstandingPackets))) {
         _numOutstandingPackets++;
     }
+}
+
+void
+LSQ::RowopRequest::sendPacketToCache()
+{
+    assert(_numOutstandingPackets == 0);
+    if (lsqUnit()->trySendPacket(isLoad(), _packets.at(0)))
+        _numOutstandingPackets = 1;
 }
 
 Cycles

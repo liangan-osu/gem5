@@ -690,6 +690,32 @@ class LSQ
         virtual std::string name() const { return "SplitDataRequest"; }
     };
 
+    class RowopRequest : public SplitDataRequest
+    {
+    public:
+        RowopRequest(LSQUnit* port, const DynInstPtr& inst,
+                bool isLoad, const Addr& addr, const uint32_t& size,
+                const Request::Flags & flags_, PacketDataPtr data=nullptr,
+                uint64_t* res=nullptr) :
+            SplitDataRequest(port, inst, isLoad, addr, size, flags_, data,
+                res) {}
+        inline virtual ~RowopRequest() {}
+        virtual void initiateTranslation();
+        virtual void finish(const Fault &fault, const RequestPtr &req,
+                gem5::ThreadContext* tc, BaseMMU::Mode mode);
+        virtual void buildPackets();
+        virtual void sendPacketToCache();
+        virtual std::string
+        name() const
+        {
+            return "RowopRequest";
+        }
+
+    private:
+        void checkRowOp(const char *);
+        PacketDataPtr rowoppayload;
+    };
+
     /** Constructs an LSQ with the given parameters. */
     LSQ(CPU *cpu_ptr, IEW *iew_ptr, const BaseO3CPUParams &params);
 
