@@ -2127,11 +2127,27 @@ mmapFunc(SyscallDesc *desc, ThreadContext *tc,
         region_name = ffdp->getFileName();
     }
 
-    /**
-     * Setup the correct VMA for this region.  The physical pages will be
-     * mapped lazily.
-     */
-    p->memState->mapRegion(start, length, region_name, sim_fd, offset);
+    // are we ok with clobbering existing mappings?  only set this to
+    // true if the user has been warned.
+    bool clobber = false;
+
+    // try to use the caller-provided address if there is one
+    bool use_provided_address = (start != 0);
+
+    if (!use_provided_address) {
+        Addr mmap_end = p->memState->getMmapEnd();
+        // no address provided, or provided address unusable:
+        // pick next address from our "mmap region"
+        if (p->mmapGrowsDown()) {
+            start = mmap_end - length;
+            mmap_end = start;
+        } else {
+            start = mmap_end;
+            mmap_end += length;
+        }
+    }
+
+    p->allocateMem(start, length, clobber);
 
     return (Addr)start;
 }

@@ -181,7 +181,7 @@ Cache::access(PacketPtr pkt, CacheBlk *&blk, Cycles &lat,
         DPRINTF(Cache, "%s for %s\n", __func__, pkt->print());
 
         // flush and invalidate any existing block
-        if (pkt->req->isRowOp()) {
+        /*if (pkt->req->isRowOp()) {
             Request::RowOpPayload* addrs =
                 pkt->getPtr<Request::RowOpPayload>();
             for (Addr i = 0; i < ROW_SIZE; i += blkSize) {
@@ -190,9 +190,9 @@ Cache::access(PacketPtr pkt, CacheBlk *&blk, Cycles &lat,
                 writebackAddr(addrs->src2 + i, pkt->isSecure(), writebacks);
             }
         }
-        else {
+        else {*/
             writebackAddr(pkt->getAddr(), pkt->isSecure(), writebacks);
-        }
+        //}
 
         blk = nullptr;
         // lookupLatency is the latency in case the request is uncacheable.

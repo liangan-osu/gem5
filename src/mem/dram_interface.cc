@@ -461,6 +461,7 @@ DRAMInterface::doBurstAccess(MemPacket* mem_pkt, Tick next_burst_at,
 
         // Wait for earliest allowed activate
         Tick cmd_at = std::max(col_allowed_at, bank_ref.actAllowedAt);
+        cmd_at = std::max(cmd_at, curTick());
 
         // Do sequence of activate-activate-precharge operations
         switch (mem_pkt->row_op) {

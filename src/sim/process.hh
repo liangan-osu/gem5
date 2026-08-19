@@ -149,7 +149,7 @@ class Process : public SimObject
      * platforms grow downward, but a few (such as Alpha) grow upward
      * instead, so they can override this method to return false.
      */
-    virtual bool mmapGrowsDown() const { return true; }
+    virtual bool mmapGrowsDown() const { return false; }
 
     /**
      * Maps a contiguous range of virtual addresses in this process's

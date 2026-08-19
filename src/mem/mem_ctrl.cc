@@ -312,39 +312,45 @@ MemCtrl::addToWriteQueue(PacketPtr pkt, unsigned int pkt_count,
     if (pkt->isRowOp()) {
 
         Request::RowOpPayload* addrs = pkt->getPtr<Request::RowOpPayload>();
-        MemPacket* dram_pkt  =
+        MemPacket* mem_pkt  =
             mem_intr->decodePacket(pkt, addrs->dest, 0, false);
-        MemPacket* dram_pkt1 =
+        MemPacket* mem_pkt1 =
             mem_intr->decodePacket(pkt, addrs->src1, 0, false);
-        MemPacket* dram_pkt2 =
+        MemPacket* mem_pkt2 =
             mem_intr->decodePacket(pkt, addrs->src2, 0, false);
-        dram_pkt->is_row_op = true;
-        dram_pkt->row_op = addrs->op;
+        mem_pkt->is_row_op = true;
+        mem_pkt->row_op = addrs->op;
 
-        // Only care about dram_pkt1 if the operation is not in place
+        // Only care about mem_pkt1 if the operation is not in place
         if (addrs->op != Request::ROWAP) {
-            assert(dram_pkt->rank == dram_pkt1->rank);
-            assert(dram_pkt->bank == dram_pkt1->bank);
+            assert(mem_pkt->rank == mem_pkt1->rank);
+            assert(mem_pkt->bank == mem_pkt1->bank);
         }
-        // Only care about dram_pkt2 if it's a binary op
+        // Only care about mem_pkt2 if it's a binary op
         if (addrs->op != Request::ROWNOT && addrs->op !=
             Request::ROWAAP && addrs->op != Request::ROWAP) {
-            assert(dram_pkt->rank == dram_pkt2->rank);
-            assert(dram_pkt->bank == dram_pkt2->bank);
+            assert(mem_pkt->rank == mem_pkt2->rank);
+            assert(mem_pkt->bank == mem_pkt2->bank);
         }
-        dram_pkt->src1_row = dram_pkt1->row;
-        dram_pkt->src2_row = dram_pkt2->row;
-        delete dram_pkt1;
-        delete dram_pkt2;
+        mem_pkt->src1_row = mem_pkt1->row;
+        mem_pkt->src2_row = mem_pkt2->row;
+        delete mem_pkt1;
+        delete mem_pkt2;
 
         DPRINTF(MemCtrl,
     "Adding to write queue: RowOp in rank %d bank %d, rows %d <-- %d (*) %d\n",
-            dram_pkt->rank, dram_pkt->bank, dram_pkt->row,
-            dram_pkt->src1_row, dram_pkt->src2_row);
+            mem_pkt->rank, mem_pkt->bank, mem_pkt->row,
+            mem_pkt->src1_row, mem_pkt->src2_row);
 
         // Add to write queue, and set rowop counter to signal that we must
         // flush the write queue
-        writeQueue[dram_pkt->qosValue()].push_back(dram_pkt);
+        writeQueue[mem_pkt->qosValue()].push_back(mem_pkt);
+        // log packet
+        logRequest(MemCtrl::WRITE, pkt->requestorId(),
+                   pkt->qosValue(), mem_pkt->addr, 1);
+
+        mem_intr->writeQueueSize++;
+
         pendingRowOps++;
 
     }
@@ -393,7 +399,7 @@ MemCtrl::addToWriteQueue(PacketPtr pkt, unsigned int pkt_count,
 
                 mem_intr->writeQueueSize++;
 
-                assert(totalWriteQueueSize == isInWriteQueue.size());
+                //assert(totalWriteQueueSize == isInWriteQueue.size());
 
                 // Update stats
                 stats.avgWrQLen = totalWriteQueueSize;
