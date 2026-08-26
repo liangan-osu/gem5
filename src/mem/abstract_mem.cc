@@ -394,9 +394,9 @@ AbstractMemory::access(PacketPtr pkt)
     if (pkt->isRowOp()) {
         const Request::RowOpPayload* addrs =
             pkt->getConstPtr<Request::RowOpPayload>();
-        uint64_t *dest = (uint64_t*)(pmemAddr + addrs->dest - range.start());
-        uint64_t *src1 = (uint64_t*)(pmemAddr + addrs->src1 - range.start());
-        uint64_t *src2 = (uint64_t*)(pmemAddr + addrs->src2 - range.start());
+        uint64_t *dest = (uint64_t *)toHostAddr(addrs->dest);
+        uint64_t *src1 = (uint64_t *)toHostAddr(addrs->src1);
+        uint64_t *src2 = (uint64_t *)toHostAddr(addrs->src2);
         DPRINTF(MemoryAccess, "Performing rowop %d on %p (%x) and %p (%x)\n",
             addrs->op, src1, *src1, src2, src2 == NULL? 0 : *src2);
         switch (addrs->op) {
